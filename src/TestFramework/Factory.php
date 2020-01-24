@@ -36,14 +36,15 @@ declare(strict_types=1);
 namespace Infection\TestFramework;
 
 use Infection\AbstractTestFramework\TestFrameworkAdapter;
+use Infection\AbstractTestFramework\TestFrameworkAdapterFactory;
 use Infection\Configuration\Configuration;
 use Infection\FileSystem\Finder\TestFrameworkFinder;
-use Infection\TestFramework\Codeception\CodeceptionAdapterFactory;
 use Infection\TestFramework\Config\TestFrameworkConfigLocatorInterface;
 use Infection\TestFramework\PhpSpec\Adapter\PhpSpecAdapterFactory;
 use Infection\TestFramework\PhpUnit\Adapter\PhpUnitAdapterFactory;
 use InvalidArgumentException;
 use function Safe\sprintf;
+use Webmozart\Assert\Assert;
 
 /**
  * @internal
@@ -105,19 +106,33 @@ final class Factory
             );
         }
 
-        if ($adapterName === TestFrameworkTypes::CODECEPTION) {
-            $codeceptionConfigPath = $this->configLocator->locate(TestFrameworkTypes::CODECEPTION);
+        $extensionsClassExists = class_exists('\Infection\ExtensionInstaller\GeneratedExtensionsConfig');
 
-            return CodeceptionAdapterFactory::create(
-                (new TestFrameworkFinder('codecept'))->find(),
-                $this->tmpDir,
-                $codeceptionConfigPath,
-                null,
-                $this->jUnitFilePath,
-                $this->projectDir,
-                $this->infectionConfig->getSourceDirectories(),
-                $skipCoverage
-            );
+        if ($extensionsClassExists) {
+            $installedExtensions = \Infection\ExtensionInstaller\GeneratedExtensionsConfig::EXTENSIONS;
+
+            foreach ($installedExtensions as $packageName => $installedExtension) {
+                $factory = $installedExtension['extra']['class'];
+
+                Assert::classExists($factory);
+
+                if (!is_a($factory, TestFrameworkAdapterFactory::class, true)) {
+                    continue;
+                }
+
+                if ($adapterName === $factory::getAdapterName()) {
+                    return $factory::create(
+                        (new TestFrameworkFinder($factory::getExecutableName()))->find(),
+                        $this->tmpDir,
+                        $this->configLocator->locate($factory::getAdapterName()),
+                        null,
+                        $this->jUnitFilePath,
+                        $this->projectDir,
+                        $this->infectionConfig->getSourceDirectories(),
+                        $skipCoverage
+                    );
+                }
+            }
         }
 
         throw new InvalidArgumentException(sprintf(
